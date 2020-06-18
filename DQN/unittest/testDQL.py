@@ -29,9 +29,7 @@ class TestsimpleDQL(unittest.TestCase):
         self.action_,self.TargetQ_,self.optimizer = trainmethod(actiondim, self.Qvalue, 
                                                                 learningRate)
         
-    @data(([0.3, 1.2, 0.2, 0.1],0),
-        ([0.3, 1.2, -0.2, -0.1], 1),
-        ([0.4, 1.3, -0.2, 1.5], 0),
+    @data(([0.4, 1.3, -0.2, 1.5], 0),
         ([-0.1, 0.4, 0.1, 0.6], 1)
         )
          
