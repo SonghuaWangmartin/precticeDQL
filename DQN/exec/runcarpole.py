@@ -14,7 +14,7 @@ dirName = os.path.dirname(__file__)
 sys.path.append(os.path.join(dirName, '..', '..'))
 sys.path.append(os.path.join(dirName, '..'))
 from src.simpleDQL import dqnmodel
-from env.Cartpole import CartPoleEnvSetup,visualizeCartpole,resetCartpole,CartPoleTransition,CartPoleReward,isTerminal
+from env.Cartpole import CartPoleEnvSetup,visualizeCartpole,resetCartpole,CartPoletransition,CartPoleReward,isTerminal
 
 
 
@@ -36,7 +36,7 @@ def main():
   env = CartPoleEnvSetup()        
   visualize = visualizeCartpole() 
   reset = resetCartpole()         
-  transitioncart = CartPoleTransition()  
+  transition = CartPoletransition()  
   rewardcart = CartPoleReward()        
   isterminal = isTerminal()
   statesdim = env.observation_space.shape[0]
@@ -48,7 +48,7 @@ def main():
     # Train
     for step in range(STEP):
       action = DQNmodel.getaction(state)  
-      next_state=transitioncart(state, action)
+      next_state=transition(state, action)
       done = isterminal(next_state)
       reward = rewardcart(done)
       DQNmodel.Updatemodel(state, action, reward, next_state,done)
@@ -62,7 +62,7 @@ def main():
         for j in range(STEP):
           visualize(state)
           action = DQNmodel.maxaction(state)      # direct action for test
-          next_state=transitioncart(state, action)
+          next_state=transition(state, action)
           done = isterminal(next_state)
           reward = rewardcart(done)
           state=next_state
