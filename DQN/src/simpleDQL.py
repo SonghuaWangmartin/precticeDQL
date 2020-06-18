@@ -94,9 +94,6 @@ class dqnmodel():
         else:
             action =  np.argmax(Qvalue)
         return action
-    
-    def maxaction(self,state):
-        Qvalue = self.Qvalue.eval(feed_dict = {self.states:[state]})[0]
-        return np.argmax(Qvalue)
+
                     
                
