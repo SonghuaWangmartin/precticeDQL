@@ -61,7 +61,7 @@ def main():
         state = reset()
         for j in range(STEP):
           visualize(state)
-          action = DQNmodel.maxaction(state)      # direct action for test
+          action = DQNmodel.getaction(state)      
           next_state=transition(state, action)
           done = isterminal(next_state)
           reward = rewardcart(done)
