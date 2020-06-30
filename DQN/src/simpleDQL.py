@@ -4,96 +4,220 @@ Created on Tue Jun 16 06:25:29 2020
 
 @author: martin
 """
-
 import tensorflow.compat.v1 as tf
 import numpy as np 
+import matplotlib.pyplot as plt
 import random
-from collections import deque
 tf.enable_v2_behavior()
 tf.compat.v1.disable_eager_execution()
 
+class UpdateParameters:
+    def __init__(self, replaceiter):
+        self.replaceiter = replaceiter
+    def __call__(self, model,runtime):
+        if runtime % self.replaceiter == 0:
+            modelgraph = model.graph
+            updateParam_ = modelgraph.get_collection_ref("ReplaceTargetParam_")[0]
+            model.run(updateParam_)
+        return model
 
-def trainmethod(actiondim,Qvalue,learningRate):
-    action_ = tf.placeholder("float",[None,actiondim])
-    TargetQ_ = tf.placeholder("float",[None])
-    TrainQ = tf.reduce_sum(tf.multiply(Qvalue,action_),reduction_indices = 1)
-    loss = tf.reduce_mean(tf.square(TargetQ_ - TrainQ))
-    optimizer = tf.train.AdamOptimizer(learningRate).minimize(loss)
-    return action_,TargetQ_,optimizer
-    
-def Buildmodel (statedim,actiondim,numberlayers):
-    graph = tf.Graph()
-    with graph.as_default():
-        initweight = tf.random_normal_initializer(0, 0.3)
-        initbias = tf.constant_initializer(0.1)
-    with tf.name_scope('inputs'):
-        states_ = tf.placeholder("float", [None, statedim])  
-        tf.add_to_collection('states_', states_)
-    with tf.variable_scope('net1'):
-        weight1 = tf.get_variable("w1", [statedim, numberlayers], initializer=initweight)
-        bias1 = tf.get_variable("b1", [1, numberlayers], initializer=initbias)
-        layer1 = tf.nn.relu(tf.matmul(states_, weight1) + bias1)
-        tf.add_to_collection('weight1', weight1)
-        tf.add_to_collection('bias1', bias1)
-        tf.add_to_collection('layer1', layer1)
-    with tf.variable_scope('layer2'):
-        weight2 = tf.get_variable("w2", [numberlayers, actiondim], initializer=initweight)
-        bias2 = tf.get_variable("b2", [1, actiondim], initializer=initbias)
-        Qtarget = tf.matmul(layer1, weight2) + bias2
-        tf.add_to_collection('weight2', weight2)
-        tf.add_to_collection('bias2', bias2)
-        tf.add_to_collection('Qtarget', Qtarget)
-    return states_,Qtarget
-    
-class dqnmodel():
-    def __init__(self,statesdim,actiondim,fixedparameter):
-        self.gamma = fixedparameter['gamma']
-        self.learningRate = fixedparameter['learningRate']
-        self.epsilon = fixedparameter['epsilon']
-        self.numberlayers = fixedparameter['numberlayers']
-        self.replaysize = fixedparameter['replaysize']
-        self.batchsize = fixedparameter['batchsize']
-        self.replaybuffer = deque()
+def samplebuffer(replaybuffer,batchsize):
+    minibatch = random.sample(replaybuffer,batchsize)
+    return minibatch
+
+def epsilonDec(epsilon,minepsilon,epsilondec):
+    epsilon = epsilon - epsilondec if epsilon > minepsilon else minepsilon
+    return epsilon
+
+class BuildModel ():
+    def __init__(self, statedim, actiondim):
+        self.stateDim = statedim
+        self.actionDim = actiondim
         
-        self.statedim = statesdim
-        self.actiondim = actiondim
-        self.states,self.Qvalue = Buildmodel(self.statedim,self.actiondim,self.numberlayers)
-        self.action_,self.TargetQ_,self.optimizer = trainmethod(self.actiondim, self.Qvalue, 
-                                                                self.learningRate)
-        self.session = tf.InteractiveSession()
-        self.session.run(tf.initialize_all_variables())
-        
-    
-    def Updatemodel (self,state, actions, rewards, nextStates,done):
-        encodeaction = np.zeros(self.actiondim) 
-        encodeaction[actions] = 1
-        self.replaybuffer.append((state, encodeaction, rewards, nextStates, done))
-        if len(self.replaybuffer) > self.replaysize:
-            self.replaybuffer.popleft()
-        if len(self.replaybuffer) > self.batchsize:
-            minibatch = random.sample(self.replaybuffer,self.batchsize)
-            stateBatch = [D[0] for D in minibatch]
-            actionbatch = [D[1] for D in minibatch]
-            rewardBatch = [D[2] for D in minibatch]
-            nextStateBatch = [D[3] for D in minibatch]
-            Qvaluebatch = self.Qvalue.eval(feed_dict={self.states: nextStateBatch})
-            ybatch = []
-            for i in range(0, self.batchsize):
-                done = minibatch[i][4]
-                if done:
-                    ybatch.append(rewardBatch[i])
-                else:
-                    ybatch.append(rewardBatch[i] + self.gamma * np.max(Qvaluebatch[i]))
+    def __call__(self, numberlayers):
+        graph = tf.Graph()
+        with graph.as_default():
+            initweight = tf.random_normal_initializer(0, 0.3)
+            initbias = tf.constant_initializer(0.1)
+            with tf.name_scope('inputs'):
+                states_ = tf.placeholder(tf.float32, [None, self.stateDim])
+                nextstates_ = tf.placeholder(tf.float32, [None, self.stateDim])
+                reward_ = tf.placeholder(tf.float32, [None, ])
+                action_ = tf.placeholder(tf.int32, [None, ])
+                tf.add_to_collection('states_', states_)
+                tf.add_to_collection('nextstates_', nextstates_)
+                tf.add_to_collection("reward_", reward_)
+                tf.add_to_collection("action_", action_)
+            with tf.name_scope("trainingParams"):
+                learningRate_ = tf.constant(0, dtype=tf.float32)
+                gamma_ = tf.constant(0, dtype=tf.float32)
+                tf.add_to_collection("learningRate_", learningRate_)
+                tf.add_to_collection("gamma_", gamma_)
+            with tf.variable_scope('evalnet'):
+                with tf.variable_scope('layer1'):
+                    weight1 = tf.get_variable("w1", [self.stateDim, numberlayers], initializer=initweight)
+                    bias1 = tf.get_variable("b1", [1, numberlayers], initializer=initbias)
+                    layer1 = tf.nn.relu(tf.matmul(states_, weight1) + bias1)
+                    tf.add_to_collection('weight1', weight1)
+                    tf.add_to_collection('bias1', bias1)
+                    tf.add_to_collection('layer1', layer1)
+                with tf.variable_scope('layer2'):
+                    weight2 = tf.get_variable("w2", [numberlayers, self.actionDim], initializer=initweight)
+                    bias2 = tf.get_variable("b2", [1, self.actionDim], initializer=initbias)
+                    Qevalvalue_ = tf.matmul(layer1, weight2) + bias2
+                    tf.add_to_collection('weight2', weight2)
+                    tf.add_to_collection('bias2', bias2)
+                    tf.add_to_collection('Qevalvalue_', Qevalvalue_)
+                    
+            with tf.variable_scope('targetnet'):
+                with tf.variable_scope('layer1'):
+                    weight1 = tf.get_variable("w1", [self.stateDim, numberlayers], initializer=initweight)
+                    bias1 = tf.get_variable("b1", [1, numberlayers], initializer=initbias)
+                    layer1 = tf.nn.relu(tf.matmul(nextstates_, weight1) + bias1)
+                    tf.add_to_collection('weight1', weight1)
+                    tf.add_to_collection('bias1', bias1)
+                    tf.add_to_collection('layer1', layer1)
+                with tf.variable_scope('layer2'):
+                    weight2 = tf.get_variable("w2", [numberlayers, self.actionDim], initializer=initweight)
+                    bias2 = tf.get_variable("b2", [1, self.actionDim], initializer=initbias)
+                    Qnext = tf.matmul(layer1, weight2) + bias2
+                    tf.add_to_collection('weight2', weight2)
+                    tf.add_to_collection('bias2', bias2)
+                    tf.add_to_collection('Qnext', Qnext)   
+                
+            with tf.variable_scope('Qtarget'):
+                qtarget = reward_ + gamma_ * tf.reduce_max(Qnext, axis=1)   
+                Qtarget = tf.stop_gradient(qtarget)
+                tf.add_to_collection("Qtarget", Qtarget)
             
-            self.optimizer.run(feed_dict={self.TargetQ_: ybatch,self.action_: actionbatch,self.states: stateBatch})
+            with tf.variable_scope('Qevalaction'):
+                actionind = tf.stack([tf.range(tf.shape(action_)[0], dtype=tf.int32), action_], axis=1)
+                Qevalaction = tf.gather_nd(params=Qevalvalue_, indices=actionind)    # shape=(None, )
+                tf.add_to_collection("Qevalaction", Qevalaction)
+                
+            with tf.variable_scope('loss'):
+                loss_ = tf.reduce_mean(tf.squared_difference(Qtarget, Qevalaction))
+                tf.add_to_collection("loss_", loss_)
+                
+            with tf.variable_scope('train'):
+                trainopt = tf.train.AdamOptimizer(learningRate_, name='adamOptimizer').minimize(loss_)
+                tf.add_to_collection("trainopt", trainopt)
+                
+            with tf.name_scope("replaceParameters"):
+                evalParams_ = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='evalnet')
+                targetParams_ = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='targetnet')
+                ReplaceTargetParam_ = [tf.assign(evalParams_, targetParam) for evalParams_, targetParam in zip(evalParams_, targetParams_)]
+                tf.add_to_collection("evalParams_", evalParams_)
+                tf.add_to_collection("targetParams_", targetParams_)
+                tf.add_to_collection("ReplaceTargetParam_", ReplaceTargetParam_) 
+                
+            fullSummary = tf.summary.merge_all()
+            tf.add_to_collection("summaryOps", fullSummary)
 
-    def getaction(self,state):
-        Qvalue  = self.Qvalue.eval(feed_dict = {self.states:[state]})[0]
-        if random.random() <= self.epsilon:
-            action = random.randint(0,self.actiondim-1)  
+            Saver = tf.train.Saver(max_to_keep=None)
+            tf.add_to_collection("saver", Saver)
+
+            model = tf.Session(graph=graph)
+            model.run(tf.global_variables_initializer())
+            Writer = tf.summary.FileWriter('/path/to/logs', graph=graph)
+            tf.add_to_collection("Writer", Writer)
+        return Writer, model
+    
+    
+class TrainModel:
+    def __init__(self, learningRate, gamma,Writer):
+        self.learningRate = learningRate
+        self.gamma = gamma
+        self.Writer = Writer
+        self.runtime = 0
+    def __call__(self, model, minibatch):
+        statebatch = [d[0] for d in minibatch]
+        actionbatch = [d[1] for d in minibatch]
+        rewardbatch = [d[2] for d in minibatch]
+        nextStatebatch = [d[3] for d in minibatch]
+        modelGraph = model.graph
+        states_ = modelGraph.get_collection_ref("states_")[0]
+        action_ = modelGraph.get_collection_ref("action_")[0]
+        reward_ = modelGraph.get_collection_ref("reward_")[0]
+        nextstates_ = modelGraph.get_collection_ref("nextstates_")[0]
+        learningRate_ = modelGraph.get_collection_ref("learningRate_")[0]
+        gamma_ = modelGraph.get_collection_ref("gamma_")[0]
+
+        loss_ = modelGraph.get_collection_ref("loss_")[0]
+        trainopt = modelGraph.get_collection_ref("trainopt")[0]
+        Loss, trainOpt = model.run([loss_, trainopt],
+                                        feed_dict={states_: statebatch, action_: actionbatch, reward_: rewardbatch, nextstates_: nextStatebatch,
+                                                   learningRate_: self.learningRate, gamma_: self.gamma})
+
+        summary = tf.Summary()
+        summary.value.add(tag='reward', simple_value=float(np.mean(rewardbatch)))
+        summary.value.add(tag='loss', simple_value=float(Loss))
+        self.Writer.flush()
+        return Loss, model
+    
+class TrainDQNmodel():
+    def __init__(self, updateParameters, trainModel, DQNModel):
+        self.updateParameters = updateParameters
+        self.trainModel = trainModel
+        self.DQNModel = DQNModel
+        self.runtime = 0
+    def __call__(self, miniBatch):
+        Loss, self.DQNModel = self.trainModel(self.DQNModel, miniBatch)
+        self.DQNModel = self.updateParameters(self.DQNModel,self.runtime)
+        self.runtime += 1
+        
+class ReplayMemory():
+    def __init__(self,replaysize,batchsize,trainDQNmodel):
+        self.replaysize = replaysize
+        self.batchsize = batchsize
+        self.trainDQNmodel = trainDQNmodel
+    def __call__(self,replaybuffer,state, action, rewards, nextstate):
+        replaybuffer.append((state, action, rewards, nextstate))
+        if len(replaybuffer) > self.replaysize:
+            replaybuffer.popleft()
+        if len(replaybuffer) > self.batchsize:
+            minibatch = samplebuffer(replaybuffer,self.batchsize)
+            self.trainDQNmodel(minibatch)
+        
+class Getaction():
+    def __init__(self, actiondim):
+        self.actionDim = actiondim
+    def __call__(self,model,epsilon,state):
+        modelGraph = model.graph
+        Qevalvalue_ = modelGraph.get_collection_ref("Qevalvalue_")[0]
+        states_ = modelGraph.get_collection_ref("states_")[0]
+        state = state[np.newaxis, :]
+        if np.random.uniform() > epsilon:
+            actions_value = model.run(Qevalvalue_, feed_dict={states_: state})
+            action = np.argmax(actions_value)
         else:
-            action =  np.argmax(Qvalue)
+            action = np.random.randint(0, self.actionDim)
         return action
 
-                    
-               
+
+
+
+def plotrewards(rewards, avgrewards):
+    """
+    Plot rewards and running average rewards.
+    Args:
+        rewards: list of rewards 
+        avgrewards: list of average (last 100) rewards
+    """
+    plt.style.use('seaborn-darkgrid')
+    fig = plt.figure(figsize=(12,7))
+    ax1 = fig.add_subplot(2, 1, 1)
+    ax2 = fig.add_subplot(2, 1, 2)
+    plt.subplots_adjust(hspace=.5)
+    
+    ax1.set_title('Episodic rewards')
+    ax1.plot(rewards, label='Episodic rewards')
+    ax1.set_xlabel("Episodes")
+    ax1.set_ylabel("Rewards")
+    
+    ax2.set_title('Running rewards')
+    ax2.plot(avgrewards, label='average rewards')
+    ax2.set_xlabel("Episodes")
+    ax2.set_ylabel("Average rewards")
+    
+    plt.show(fig)
