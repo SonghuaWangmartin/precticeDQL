@@ -13,24 +13,24 @@ import sys
 dirName = os.path.dirname(__file__)
 sys.path.append(os.path.join(dirName, '..', '..'))
 sys.path.append(os.path.join(dirName, '..'))
-from src.simpleDQL import UpdateParameters,plotrewards,epsilonDec,BuildModel,ReplayMemory,TrainModel,TrainDQNmodel,Getaction
+from src.simpleDQL import ReplaceParameters,plotrewards,epsilonDec,BuildModel,Learn,TrainModel,TrainDQNmodel
 from env.Cartpole import CartPoleEnvSetup,visualizeCartpole,resetCartpole,CartPoletransition,CartPoleReward,isTerminal
 from collections import deque
 
 
 
 gamma = 0.9
-buffersize = 20000
+buffersize = 5000
 batchsize =  32 
-epsilon = 0.9
-minepsilon = 0.2
-epsilondec = 0.01
-learningRate = 0.01
-numberlayers = 15
-replaceiter = 200
+epsilon = 0.99
+minepsilon = 0.01
+epsilondec = 0.001
+learningRate = 0.001 
+numberlayers = 18
+replaceiter = 100
 
 
-EPISODE = 10000
+EPISODE = 5000
 STEP = 300 
 test = 10
 
@@ -46,25 +46,26 @@ def main():
     actiondim = env.action_space.n
     replaybuffer = deque()
     runepsilon = epsilon
+    runepsilon_ = epsilon
+    avgreward = []
     
     buildmodel = BuildModel(statesdim,actiondim)
     Writer,DQNmodel = buildmodel(numberlayers)
-    getaction = Getaction(actiondim)
-    updateParameters = UpdateParameters(replaceiter)
+    replaceParameters = ReplaceParameters(replaceiter)
     trainModel = TrainModel(learningRate, gamma,Writer)
-    trainDQNmodel = TrainDQNmodel(updateParameters, trainModel, DQNmodel)
-    replayMemory = ReplayMemory(buffersize,batchsize,trainDQNmodel)
+    trainDQNmodel = TrainDQNmodel(replaceParameters, trainModel, DQNmodel)
+    learn = Learn(buffersize,batchsize,trainDQNmodel,actiondim)
 
     
     for episode in range(EPISODE):
         state  = reset()
         for step in range(STEP):
             runepsilon = epsilonDec(runepsilon,minepsilon,epsilondec)
-            action = getaction(DQNmodel,runepsilon,state)  
+            action = learn.Getaction(DQNmodel,runepsilon,state)  
             nextstate=transition(state, action)
             done = isterminal(nextstate)
             rewards = rewardcart(done)
-            replayMemory(replaybuffer,state, action, rewards, nextstate)
+            learn.ReplayMemory(replaybuffer,state, action, rewards, nextstate)
             state = nextstate
             if done:
                 break
@@ -74,7 +75,8 @@ def main():
                 state = reset()
                 for j in range(STEP):
                     visualize(state)
-                    action = getaction(DQNmodel,epsilon,state)       
+                    runepsilon_ = epsilonDec(runepsilon_,minepsilon,epsilondec)
+                    action = learn.Getaction(DQNmodel,runepsilon_,state)       
                     nextstate=transition(state, action)
                     done = isterminal(nextstate)
                     reward = rewardcart(done)
@@ -83,10 +85,8 @@ def main():
                     if done:
                         break
             meanreward = totalrewards/test
+            avgreward.append(meanreward)
             print('episode: ',episode,'average Reward:',meanreward)
-            if meanreward >= 200:
-                visualize.close()
-                break
-            plotrewards(rewards, meanreward)
+    plotrewards(totalrewards, avgreward)
 if __name__ == '__main__':
   main()
