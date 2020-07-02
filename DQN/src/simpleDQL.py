@@ -42,7 +42,7 @@ class BuildModel ():
             with tf.name_scope('inputs'):
                 states_ = tf.placeholder(tf.float32, [None, self.stateDim])
                 nextstates_ = tf.placeholder(tf.float32, [None, self.stateDim])
-                reward_ = tf.placeholder(tf.float32, [None])
+                reward_ = tf.placeholder(tf.float32, [None,])
                 action_ = tf.placeholder(tf.float32, [None, self.actionDim])
                 tf.add_to_collection('states_', states_)
                 tf.add_to_collection('nextstates_', nextstates_)
@@ -55,18 +55,18 @@ class BuildModel ():
                 tf.add_to_collection("gamma_", gamma_)
             with tf.variable_scope('evalnet'):
                 with tf.variable_scope('layer1'):
-                    weight1 = tf.get_variable("w1", [self.stateDim, numberlayers], initializer=initweight)
-                    bias1 = tf.get_variable("b1", [1, numberlayers], initializer=initbias)
-                    layer1 = tf.nn.relu(tf.matmul(states_, weight1) + bias1)
-                    tf.add_to_collection('weight1', weight1)
-                    tf.add_to_collection('bias1', bias1)
+                    Weight1 = tf.get_variable("w1", [self.stateDim, numberlayers], initializer=initweight)
+                    Bias1 = tf.get_variable("b1", [1, numberlayers], initializer=initbias)
+                    layer1 = tf.nn.relu(tf.matmul(states_, Weight1) + Bias1)
+                    tf.add_to_collection('Weight1', Weight1)
+                    tf.add_to_collection('Bias1', Bias1)
                     tf.add_to_collection('layer1', layer1)
                 with tf.variable_scope('layer2'):
-                    weight2 = tf.get_variable("w2", [numberlayers, self.actionDim], initializer=initweight)
-                    bias2 = tf.get_variable("b2", [1, self.actionDim], initializer=initbias)
-                    Qevalvalue_ = tf.matmul(layer1, weight2) + bias2
-                    tf.add_to_collection('weight2', weight2)
-                    tf.add_to_collection('bias2', bias2)
+                    Weight2 = tf.get_variable("w2", [numberlayers, self.actionDim], initializer=initweight)
+                    Bias2 = tf.get_variable("b2", [1, self.actionDim], initializer=initbias)
+                    Qevalvalue_ = tf.matmul(layer1, Weight2) + Bias2
+                    tf.add_to_collection('Weight2', Weight2)
+                    tf.add_to_collection('Bias2', Bias2)
                     tf.add_to_collection('Qevalvalue_', Qevalvalue_)
                     
             with tf.variable_scope('targetnet'):
@@ -87,7 +87,7 @@ class BuildModel ():
                 
             with tf.variable_scope('Qtarget'):
                 qtarget = reward_ + gamma_ * tf.reduce_max(Qnext, axis=1)   
-                Qtarget = tf.stop_gradient(qtarget)
+                Qtarget =  tf.stop_gradient(qtarget)
                 tf.add_to_collection("Qtarget", Qtarget)
             
             with tf.variable_scope('Qevalaction'):
@@ -99,13 +99,13 @@ class BuildModel ():
                 tf.add_to_collection("loss_", loss_)
                 
             with tf.variable_scope('train'):
-                trainopt = tf.train.AdamOptimizer(learningRate_, name='adamOptimizer').minimize(loss_)
+                trainopt = tf.train.RMSPropOptimizer(learningRate_, name='adamOptimizer').minimize(loss_)
                 tf.add_to_collection("trainopt", trainopt)
                 
             with tf.name_scope("replaceParameters"):
                 evalParams_ = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='evalnet')
                 targetParams_ = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='targetnet')
-                ReplaceTargetParam_ = [tf.assign(evalParams_, targetParam) for evalParams_, targetParam in zip(evalParams_, targetParams_)]
+                ReplaceTargetParam_ = [tf.assign(targetParams_, evalParams_) for targetParams_, evalParams_ in zip(targetParams_, evalParams_)]
                 tf.add_to_collection("evalParams_", evalParams_)
                 tf.add_to_collection("targetParams_", targetParams_)
                 tf.add_to_collection("ReplaceTargetParam_", ReplaceTargetParam_) 
@@ -139,8 +139,10 @@ class TrainModel:
         learningRate_ = modelGraph.get_collection_ref("learningRate_")[0]
         gamma_ = modelGraph.get_collection_ref("gamma_")[0]
 
+        loss_ =  modelGraph.get_collection_ref("loss_")[0]
         trainopt = modelGraph.get_collection_ref("trainopt")[0]
-        model.run([trainopt],feed_dict={states_: statebatch, action_: actionbatch, reward_: rewardbatch, nextstates_: nextStatebatch,
+        
+        model.run([trainopt,loss_],feed_dict={states_: statebatch, action_: actionbatch, reward_: rewardbatch, nextstates_: nextStatebatch,
                                       learningRate_: self.learningRate, gamma_: self.gamma})
 
         summary = tf.Summary()
@@ -174,14 +176,14 @@ class Learn():
             replaybuffer.popleft()
         if len(replaybuffer) > self.batchsize:
             minibatch = samplebuffer(replaybuffer,self.batchsize)
-            self.trainDQNmodel(minibatch)
+            self.trainDQNmodel(minibatch)                          
             
     def Getaction(self,model,epsilon,state):
         modelGraph = model.graph
         Qevalvalue_ = modelGraph.get_collection_ref("Qevalvalue_")[0]
         states_ = modelGraph.get_collection_ref("states_")[0]
         Qvalue = model.run(Qevalvalue_, feed_dict={states_: [state]})
-        if np.random.uniform() > epsilon:
+        if random.random() > epsilon:
             action = np.argmax(Qvalue)
         else:
             action = random.choice(np.arange(self.actionDim))
