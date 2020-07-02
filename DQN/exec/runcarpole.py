@@ -8,7 +8,7 @@ Created on Sat Jun 13 14:14:08 2020
 
 import os
 import sys
-
+import matplotlib.pyplot as plt
 
 dirName = os.path.dirname(__file__)
 sys.path.append(os.path.join(dirName, '..', '..'))
@@ -21,16 +21,16 @@ from collections import deque
 
 gamma = 0.9
 buffersize = 5000
-batchsize =  32 
-epsilon = 0.99
-minepsilon = 0.01
-epsilondec = 0.001
+batchsize =  32
+epsilon = 0.9
+minepsilon = 0.2
+epsilondec = 0.01
 learningRate = 0.001 
-numberlayers = 18
+numberlayers = 15
 replaceiter = 100
 
 
-EPISODE = 5000
+EPISODE = 10000
 STEP = 300 
 test = 10
 
@@ -70,7 +70,7 @@ def main():
             if done:
                 break
         if episode % 100 == 0:
-            totalrewards = 0   # total reward
+            totalrewards = 0   
             for i in range(test):
                 state = reset()
                 for j in range(STEP):
